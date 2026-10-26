@@ -111,6 +111,60 @@ Minecraft 原版与 Forge/Fabric/NeoForge 等安装、下载、补全、修复�
 走 device code 流程，不需要 redirect URI，但要在应用里允许 public client flows），
 然后重新构建。**填进去的值会被编译进 exe，不要把带密钥的 exe 分发出去。**
 
+## 申请自己的微软登录 Client ID
+
+代码里登录走的是 **设备码流程**（`MicrosoftProvider`）：向
+`https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode` 请求，scope 是
+`XboxLive.signin offline_access`，然后把 MSA token 依次换成 Xbox Live → XSTS
+（`rp://api.minecraftservices.com/`）→ Minecraft Services。所以需要的是一个**公共客户端**
+（public client，无密码、无重定向 URI）。
+
+### 第一步：在 Entra 注册应用
+
+1. 打开 <https://portal.azure.com> → **Microsoft Entra ID** → **应用注册** → **新注册**
+   （个人账户也能注册应用，不需要付费订阅）
+2. **名称**：随便起，但不能包含 `Mojang` / `Minecraft` / `Microsoft` / `Live` / `Xbox` /
+   `Discord` / `Hypixel` 这些词
+3. **受支持的账户类型**：**仅个人 Microsoft 账户**（Minecraft 账户是消费者账户；
+   选「仅此组织目录」会因为代码走 `/consumers/` 端点而失败）
+4. **重定向 URI**：留空。设备码流程不需要它
+5. 注册完在「概述」页复制 **应用程序(客户端) ID**
+6. 左侧 **身份验证** → 拉到底 **高级设置** → **允许公共客户端流** 设为 **是** → 保存
+   （不打开这个，设备码请求会被拒）
+7. 不需要「证书和密码」，也不需要添加任何 API 权限——`XboxLive.signin` 是在设备码请求时
+   由用户在登录页上同意的
+
+### 第二步：向 Mojang 申请白名单（关键，且常被忽略）
+
+2022 年起，新的 Entra 应用即使 OAuth 全对，也**不能**直接调用 Minecraft Services：最后一步
+`POST api.minecraftservices.com/authentication/login_with_xbox` 会返回 403
+`Invalid app registration`。`MojangUtils.AuthenticateAsync` 里是
+`response.EnsureSuccessStatusCode()`，所以界面上就是一句登录失败。
+
+拿 client ID 去 <https://aka.ms/mce-reviewappid> 提交申请（这是 Minecraft 官方的第三方应用
+审核入口，实测可访问）。审核是按 **client ID** 走的，不是按构建：通过之后，任何已经烘了这个
+ID 的 exe 都能登录，不用重新编译。个人开发者的通过率和等待时间没有保证。
+
+### 第三步：填进构建配置
+
+```ini
+PCL_MS_CLIENT_ID=你的应用程序(客户端)ID
+```
+
+写进 `selfuse.env`，重新跑 `build-selfuse.cmd`。Client ID 不是机密（它本来就印在每个官方
+exe 里），可以留在配置里；真正的机密是 `NAID_CLIENT_SECRET` 那类东西，不要复用别人的。
+
+### 等不及审核时的替代方案
+
+- 用官方的已批准 ID：官方发布的 exe 里烘着的就是
+  `c14b0370-8d75-42f8-b329-5b60d39e319f`（从 v2.15.1 的
+  `PCL2_CE_Release_x64.exe` 里读出来的 `MS_CLIENT_ID`）。实测用它请求设备码返回 200。
+  自用完全够，但那是 PCL CE 官方的应用注册，不是你的；官方换 ID 或撤销后会失效，
+  而且 Mojang 侧看到的就是「PCL CE」这个应用。同理，官方 exe 里
+  `NAID_CLIENT_SECRET`、`LOBBY_DEFAULT_SECRET`、`SENTRY_DSN` 也都是明文，那些**不要**借用。
+- 外置登录：littleskin 等 authlib-injector 皮肤站，不需要任何微软相关配置。
+- 离线登录：同样不需要。
+
 ## 已验证事实
 
 在本机（Windows 11，区域判定为 `Mainland`）实测：
