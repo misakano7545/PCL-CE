@@ -343,6 +343,9 @@ healthchecksdb
 
 MaskFiles/
 
+# Self-use fork: machine-local build config (may hold secrets)
+selfuse.env
+
 # macOS
 
 **/.DS_Store
